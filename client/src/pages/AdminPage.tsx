@@ -78,7 +78,26 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!loggedIn) return;
-    loadData().catch(() => setMessage("Failed to load attendance data."));
+
+    let cancelled = false;
+    async function loadInitialData() {
+      try {
+        const [studentRes, facultyRes] = await Promise.all([
+          api.get("/api/attendance/students"),
+          api.get("/api/attendance/faculty")
+        ]);
+        if (cancelled) return;
+        setStudents(studentRes.data);
+        setFaculty(facultyRes.data);
+      } catch {
+        if (!cancelled) setMessage("Failed to load attendance data.");
+      }
+    }
+
+    void loadInitialData();
+    return () => {
+      cancelled = true;
+    };
   }, [loggedIn]);
 
   return (

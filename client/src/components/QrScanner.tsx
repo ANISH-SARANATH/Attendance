@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Html5Qrcode } from "html5-qrcode";
-import type { Html5QrcodeCameraScanConfig } from "html5-qrcode";
+import type { CameraDevice, Html5QrcodeCameraScanConfig } from "html5-qrcode";
 
 type Props = {
   onDecoded: (text: string) => void;
@@ -8,44 +8,91 @@ type Props = {
 
 export default function QrScanner({ onDecoded }: Props) {
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [started, setStarted] = useState(false);
+  const [fileBusy, setFileBusy] = useState(false);
   const [status, setStatus] = useState("Idle");
+
+  function getScanner() {
+    if (!scannerRef.current) {
+      scannerRef.current = new Html5Qrcode("qr-reader", {
+        useBarCodeDetectorIfSupported: true,
+        verbose: false
+      });
+    }
+
+    return scannerRef.current;
+  }
+
+  function getErrorMessage(error: unknown) {
+    if (error instanceof Error && error.message) return error.message;
+    return String(error || "Unable to start camera.");
+  }
+
+  function sortPreferredCameras(cameras: CameraDevice[]) {
+    return [...cameras].sort((a, b) => {
+      const score = (camera: CameraDevice) => (/back|rear|environment/i.test(camera.label) ? 1 : 0);
+      return score(b) - score(a);
+    });
+  }
+
+  async function tryStartScanner(scanner: Html5Qrcode, config: Html5QrcodeCameraScanConfig) {
+    const errors: string[] = [];
+
+    try {
+      const cameras = sortPreferredCameras(await Html5Qrcode.getCameras());
+      for (const camera of cameras) {
+        try {
+          await scanner.start(camera.id, config, onDecoded, () => {});
+          return;
+        } catch (error) {
+          errors.push(getErrorMessage(error));
+        }
+      }
+    } catch (error) {
+      errors.push(getErrorMessage(error));
+    }
+
+    const fallbacks: MediaTrackConstraints[] = [
+      { facingMode: { ideal: "environment" } },
+      { facingMode: "environment" },
+      { facingMode: "user" },
+      {}
+    ];
+
+    for (const constraints of fallbacks) {
+      try {
+        await scanner.start(constraints, config, onDecoded, () => {});
+        return;
+      } catch (error) {
+        errors.push(getErrorMessage(error));
+      }
+    }
+
+    throw new Error(errors.find(Boolean) || "Camera unavailable.");
+  }
 
   async function start() {
     if (started) return;
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setStatus("Camera unsupported");
-      return;
-    }
-
     try {
       setStatus("Requesting access...");
-      const permissionStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-        audio: false
-      });
-      permissionStream.getTracks().forEach((track) => track.stop());
-
-      const scanner = new Html5Qrcode("qr-reader");
-      scannerRef.current = scanner;
+      const scanner = getScanner();
 
       const config: Html5QrcodeCameraScanConfig = {
         fps: 10,
-        qrbox: { width: 220, height: 220 }
+        qrbox: { width: 220, height: 220 },
+        disableFlip: false
       };
 
-      const cameras = await Html5Qrcode.getCameras();
-      if (cameras.length > 0) {
-        const preferred = cameras.find((cam) => /back|rear|environment/i.test(cam.label)) || cameras[0];
-        await scanner.start(preferred.id, config, onDecoded, () => {});
-      } else {
-        await scanner.start({ facingMode: "environment" }, config, onDecoded, () => {});
-      }
+      await tryStartScanner(scanner, config);
 
       setStarted(true);
       setStatus("Live");
-    } catch (error) {
-      setStatus(`Error: ${(error as Error).message}`);
+    } catch {
+      scannerRef.current?.clear();
+      scannerRef.current = null;
+      setStarted(false);
+      setStatus(`Live camera unavailable. Use photo scan.`);
     }
   }
 
@@ -59,6 +106,28 @@ export default function QrScanner({ onDecoded }: Props) {
       setStatus("Stopped");
     } catch (error) {
       setStatus(`Stop failed: ${(error as Error).message}`);
+    }
+  }
+
+  function openPhotoScan() {
+    fileInputRef.current?.click();
+  }
+
+  async function scanPhoto(file: File) {
+    if (fileBusy) return;
+
+    setFileBusy(true);
+    try {
+      setStatus("Scanning photo...");
+      const scanner = getScanner();
+      const result = await scanner.scanFileV2(file, false);
+      onDecoded(result.decodedText);
+      setStatus("Photo scanned");
+    } catch {
+      setStatus("No QR found in photo");
+    } finally {
+      setFileBusy(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
@@ -93,12 +162,27 @@ export default function QrScanner({ onDecoded }: Props) {
         )}
       </div>
 
+      <input
+        ref={fileInputRef}
+        className="qr-file-input"
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void scanPhoto(file);
+        }}
+      />
+
       <div className="row split scan-actions">
         <button type="button" onClick={start} disabled={started}>
           {started ? "Scanner active" : "Start scanner"}
         </button>
         <button type="button" className="secondary" onClick={stop} disabled={!started}>
           Stop scanner
+        </button>
+        <button type="button" className="secondary" onClick={openPhotoScan} disabled={started || fileBusy}>
+          {fileBusy ? "Scanning..." : "Scan QR photo"}
         </button>
       </div>
     </section>

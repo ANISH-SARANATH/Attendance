@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
+import { isAxiosError } from "axios";
 import QrScanner from "../components/QrScanner";
 import { api, setAuthToken } from "../lib/api";
 
@@ -10,6 +11,18 @@ const SESSION_LABELS: Record<Session, string> = {
   afternoon: "Afternoon",
   evening: "Evening"
 };
+
+type ApiErrorBody = {
+  message?: string;
+};
+
+function getApiStatus(error: unknown) {
+  return isAxiosError(error) ? error.response?.status : undefined;
+}
+
+function getApiMessage(error: unknown) {
+  return isAxiosError<ApiErrorBody>(error) ? error.response?.data?.message : undefined;
+}
 
 export default function VolunteerPage() {
   const [token, setToken] = useState<string | null>(null);
@@ -58,8 +71,8 @@ export default function VolunteerPage() {
       let res;
       try {
         res = await api.post("/api/attendance/scan", { qrText, session });
-      } catch (error: any) {
-        if (error?.response?.status === 409) {
+      } catch (error: unknown) {
+        if (getApiStatus(error) === 409) {
           res = await api.patch("/api/attendance/scan", { qrText, session });
         } else {
           throw error;
@@ -81,8 +94,8 @@ export default function VolunteerPage() {
 
       const backendMsg = res.data?.confirmation?.message || `Saved ${type}: ${name} for ${session}.`;
       window.alert(backendMsg);
-    } catch (error: any) {
-      setMessage(error?.response?.data?.message || "Scan failed. Please retry.");
+    } catch (error: unknown) {
+      setMessage(getApiMessage(error) || "Scan failed. Please retry.");
     } finally {
       setTimeout(() => setLastQr(""), 1500);
       setBusy(false);

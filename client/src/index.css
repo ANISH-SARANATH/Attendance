@@ -397,6 +397,10 @@ button:disabled {
   background: var(--surface);
 }
 
+.qr-file-input {
+  display: none;
+}
+
 .status {
   margin: 0;
   color: var(--text-2);
