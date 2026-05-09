@@ -15,6 +15,7 @@ app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 4000;
+const HOST = process.env.HOST || "0.0.0.0";
 const MONGODB_URI =
   process.env.MONGODB_URI ||
   "mongodb+srv://anishsaranathcs24_db_user:27051939@cluster0.2undrzy.mongodb.net/?appName=Cluster0";
@@ -528,8 +529,9 @@ async function connectMongo() {
 
 connectMongo()
   .then(() => {
-    app.listen(PORT, () => {
-      console.log(`Server running on http://localhost:${PORT}`);
+    app.listen(PORT, HOST, () => {
+      const displayHost = HOST === "0.0.0.0" ? "localhost" : HOST;
+      console.log(`Server running on http://${displayHost}:${PORT} (bound to ${HOST})`);
     });
   })
   .catch((error) => {

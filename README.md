@@ -22,6 +22,8 @@ npm install
 npm run dev
 ```
 
+Keep `HOST=0.0.0.0` in `server/.env` if the backend should accept connections from other devices/networks. To use the same MongoDB Atlas database from any IP, add `0.0.0.0/0` in Atlas Network Access.
+
 ### 2) Frontend
 ```bash
 cd client
@@ -30,7 +32,7 @@ npm install
 npm run dev
 ```
 
-Frontend runs on Vite default URL and calls backend via `VITE_API_URL`.
+Frontend runs on Vite and calls backend via `VITE_API_URL`. Leave `VITE_API_URL` blank to auto-use the same host as the browser with backend port `4000`.
 
 ## Features
 - QR scan on volunteer page
