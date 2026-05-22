@@ -9,7 +9,12 @@ function authRequired(req, res, next) {
   }
 
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET || "dev-secret");
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      return res.status(500).json({ message: "JWT secret is not configured." });
+    }
+
+    const payload = jwt.verify(token, jwtSecret);
     req.user = payload;
     return next();
   } catch (error) {

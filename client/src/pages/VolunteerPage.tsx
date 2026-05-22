@@ -34,6 +34,7 @@ export default function VolunteerPage() {
   const [lastQr, setLastQr] = useState("");
   const [scanCount, setScanCount] = useState(0);
   const [lastScanName, setLastScanName] = useState<string | null>(null);
+  const [confirmationKey, setConfirmationKey] = useState(0);
 
   const loggedIn = Boolean(token);
 
@@ -44,14 +45,13 @@ export default function VolunteerPage() {
     setAuthBusy(true);
     try {
       const res = await api.post("/api/auth/volunteer-login", {
-        username: "volunteer",
         password
       });
       const receivedToken = res.data.token as string;
       setToken(receivedToken);
       setAuthToken(receivedToken);
       setPassword("");
-      setMessage("Authenticated. Start the scanner to begin.");
+      setMessage("Authenticated. Scanner is starting.");
     } catch {
       setToken(null);
       setAuthToken(null);
@@ -90,10 +90,15 @@ export default function VolunteerPage() {
 
       setLastScanName(name);
       setScanCount((count) => count + 1);
-      setMessage(`${type === "student" ? "Student" : "Faculty"} - ${name} (${id}) - ${session} - ${time}`);
+      setConfirmationKey((key) => key + 1);
 
-      const backendMsg = res.data?.confirmation?.message || `Saved ${type}: ${name} for ${session}.`;
-      window.alert(backendMsg);
+      const sheetSync = res.data?.sheetSync || res.data?.confirmation?.sheetSync;
+      const sheetNote = sheetSync?.ok ? "Sheet updated" : sheetSync?.queued ? "Sheet queued" : "";
+      setMessage(
+        `${type === "student" ? "Student" : "Faculty"} - ${name} (${id}) - ${session} - ${time}${
+          sheetNote ? ` - ${sheetNote}` : ""
+        }`
+      );
     } catch (error: unknown) {
       setMessage(getApiMessage(error) || "Scan failed. Please retry.");
     } finally {
@@ -181,7 +186,7 @@ export default function VolunteerPage() {
             <p className="status">{message}</p>
           </div>
 
-          <QrScanner onDecoded={onDecoded} />
+          <QrScanner confirmationKey={confirmationKey} onDecoded={onDecoded} />
         </div>
       )}
     </main>

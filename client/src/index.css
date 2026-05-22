@@ -159,7 +159,8 @@ h2 {
 }
 
 .hero-pill.is-ready,
-.scanner-state.is-live {
+.scanner-state.is-live,
+.scanner-state.is-confirmed {
   color: var(--green);
   border-color: #bfe8d7;
   background: var(--green-soft);
@@ -310,6 +311,11 @@ button:disabled {
   overflow: hidden;
 }
 
+.scanner-card.is-confirmed {
+  border-color: #8bd7b9;
+  box-shadow: 0 0 0 3px rgba(15, 143, 99, 0.14), 0 8px 20px rgba(23, 78, 166, 0.05);
+}
+
 .scanner-card .section-heading {
   margin: 0;
   padding: 18px;
@@ -340,6 +346,11 @@ button:disabled {
 
 .scanner-frame.is-active::before {
   border-color: rgba(96, 165, 250, 0.75);
+}
+
+.scanner-frame.is-confirmed::before {
+  border-color: rgba(15, 143, 99, 0.95);
+  box-shadow: 0 0 0 5px rgba(15, 143, 99, 0.18);
 }
 
 .scanner-box {
@@ -399,6 +410,12 @@ button:disabled {
 
 .qr-file-input {
   display: none;
+}
+
+.scanner-fallback {
+  padding: 16px 18px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .status {

@@ -4,32 +4,40 @@ const dotenv = require("dotenv");
 const jwt = require("jsonwebtoken");
 const mongoose = require("mongoose");
 
+dotenv.config();
+
 const StudentAttendance = require("./models/StudentAttendance");
 const FacultyAttendance = require("./models/FacultyAttendance");
 const { authRequired, adminOnly } = require("./middleware/auth");
-
-dotenv.config();
+const { flushQueuedSheetSync, syncAttendanceToSheet } = require("./services/sheetSync");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
+function requiredEnv(name) {
+  const value = String(process.env[name] || "").trim();
+  if (!value) throw new Error(`${name} is required in server/.env`);
+  return value;
+}
+
+function optionalEnv(name) {
+  return String(process.env[name] || "").trim();
+}
+
 const PORT = process.env.PORT || 4000;
 const HOST = process.env.HOST || "0.0.0.0";
-const MONGODB_URI =
-  process.env.MONGODB_URI ||
-  "mongodb+srv://anishsaranathcs24_db_user:27051939@cluster0.2undrzy.mongodb.net/?appName=Cluster0";
-const MONGODB_URI_FALLBACK =
-  process.env.MONGODB_URI_FALLBACK ||
-  "mongodb://anishsaranathcs24_db_user:27051939@ac-menpg4i-shard-00-00.2undrzy.mongodb.net:27017,ac-menpg4i-shard-00-01.2undrzy.mongodb.net:27017,ac-menpg4i-shard-00-02.2undrzy.mongodb.net:27017/?ssl=true&authSource=admin&replicaSet=atlas-xe98dr-shard-0&retryWrites=true&w=majority&appName=Cluster0";
+const MONGODB_URI = requiredEnv("MONGODB_URI");
+const MONGODB_URI_FALLBACK = optionalEnv("MONGODB_URI_FALLBACK");
 const MONGODB_DB_NAME = (process.env.MONGODB_DB_NAME || "").trim();
 
 const VOLUNTEER_USERNAME = process.env.VOLUNTEER_USERNAME || "volunteer";
-const VOLUNTEER_PASSWORD = process.env.VOLUNTEER_PASSWORD || "VolunteerSigmod";
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "271939";
+const VOLUNTEER_PASSWORD = requiredEnv("VOLUNTEER_PASSWORD");
+const ADMIN_PASSWORD = requiredEnv("ADMIN_PASSWORD");
+const JWT_SECRET = requiredEnv("JWT_SECRET");
 
 function signToken(role, username) {
-  return jwt.sign({ role, username }, process.env.JWT_SECRET || "dev-secret", {
+  return jwt.sign({ role, username }, JWT_SECRET, {
     expiresIn: "12h"
   });
 }
@@ -386,10 +394,10 @@ app.get("/api/health", (_req, res) => {
 
 app.post("/api/auth/volunteer-login", (req, res) => {
   const { username, password } = req.body || {};
-  if (username !== VOLUNTEER_USERNAME || password !== VOLUNTEER_PASSWORD) {
+  if ((username && username !== VOLUNTEER_USERNAME) || password !== VOLUNTEER_PASSWORD) {
     return res.status(401).json({ message: "Invalid volunteer credentials." });
   }
-  return res.json({ token: signToken("volunteer", username), role: "volunteer" });
+  return res.json({ token: signToken("volunteer", VOLUNTEER_USERNAME), role: "volunteer" });
 });
 
 app.post("/api/auth/admin-login", (req, res) => {
@@ -414,13 +422,20 @@ app.post("/api/attendance/scan", authRequired, async (req, res) => {
     }
 
     const result = await Model.create(payload);
+    const sheetSync = await syncAttendanceToSheet({
+      personType,
+      attendance: result,
+      mode: "created",
+      recordId: result._id
+    });
     const confirmation = {
       saved: true,
       action: "created",
       message: `Saved ${personType} ${result.name || result.id} for ${result.session} at ${new Date(
         result.scannedAt
       ).toLocaleTimeString()}.`,
-      recordId: result._id
+      recordId: result._id,
+      sheetSync
     };
 
     return res.status(201).json({
@@ -428,7 +443,8 @@ app.post("/api/attendance/scan", authRequired, async (req, res) => {
       mode: "created",
       type: personType,
       data: result,
-      confirmation
+      confirmation,
+      sheetSync
     });
   } catch (error) {
     return res.status(400).json({ message: error.message || "Failed to process scan." });
@@ -453,6 +469,13 @@ app.patch("/api/attendance/scan", authRequired, async (req, res) => {
       });
     }
 
+    const sheetSync = await syncAttendanceToSheet({
+      personType,
+      attendance: result,
+      mode: "updated",
+      recordId: result._id
+    });
+
     return res.json({
       ok: true,
       mode: "updated",
@@ -464,8 +487,10 @@ app.patch("/api/attendance/scan", authRequired, async (req, res) => {
         message: `Updated ${personType} ${result.name || result.id} for ${result.session} at ${new Date(
           result.scannedAt
         ).toLocaleTimeString()}.`,
-        recordId: result._id
-      }
+        recordId: result._id,
+        sheetSync
+      },
+      sheetSync
     });
   } catch (error) {
     return res.status(400).json({ message: error.message || "Failed to process scan." });
@@ -513,6 +538,11 @@ app.get("/api/attendance/export/:type", authRequired, adminOnly, async (req, res
   return res.send(csv);
 });
 
+app.post("/api/attendance/sheet-sync/retry", authRequired, adminOnly, async (_req, res) => {
+  const result = await flushQueuedSheetSync();
+  res.json(result);
+});
+
 async function connectMongo() {
   const mongoOptions = MONGODB_DB_NAME ? { dbName: MONGODB_DB_NAME } : {};
 
@@ -522,6 +552,7 @@ async function connectMongo() {
     return;
   } catch (error) {
     console.warn(`SRV connection failed: ${error.message}`);
+    if (!MONGODB_URI_FALLBACK) throw error;
     await mongoose.connect(MONGODB_URI_FALLBACK, mongoOptions);
     console.log(`MongoDB connected using fallback URI. Database: ${mongoose.connection.name}.`);
   }
