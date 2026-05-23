@@ -59,22 +59,22 @@ export default function AdminPage() {
     }
   }
 
-  async function downloadCsv(type: "students" | "faculty" | "all") {
-    try {
-      const res = await api.get(`/api/attendance/export/${type}`, {
-        responseType: "blob"
-      });
-      const blob = new Blob([res.data], { type: "text/csv" });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${type}-attendance.csv`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-    } catch {
-      setMessage("CSV download failed.");
-    }
-  }
+  // async function downloadCsv(type: "students" | "faculty" | "all") {
+  //   try {
+  //     const res = await api.get(`/api/attendance/export/${type}`, {
+  //       responseType: "blob"
+  //     });
+  //     const blob = new Blob([res.data], { type: "text/csv" });
+  //     const url = window.URL.createObjectURL(blob);
+  //     const a = document.createElement("a");
+  //     a.href = url;
+  //     a.download = `${type}-attendance.csv`;
+  //     a.click();
+  //     window.URL.revokeObjectURL(url);
+  //   } catch {
+  //     setMessage("CSV download failed.");
+  //   }
+  // }
 
   useEffect(() => {
     if (!loggedIn) return;
@@ -170,19 +170,30 @@ export default function AdminPage() {
             </div>
           </div>
 
-          <div className="admin-actions card">
+          <div className="admin-actions card" style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
             <button type="button" onClick={loadData}>
-              Refresh
+              Refresh DB Data
             </button>
-            <button type="button" className="secondary" onClick={() => downloadCsv("students")}>
-              Students CSV
-            </button>
-            <button type="button" className="secondary" onClick={() => downloadCsv("faculty")}>
-              Faculty CSV
-            </button>
-            <button type="button" className="secondary" onClick={() => downloadCsv("all")}>
-              All CSV
-            </button>
+            
+            {/* Link directly to your specific Google Sheet */}
+            <a 
+              href="https://docs.google.com/spreadsheets/d/1Np5OQHZ3ka4crTvNtma5FTpLZt5FORuei6xCAp_ntoM/edit?usp=sharing" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="secondary"
+              style={{ 
+                display: 'inline-block', 
+                padding: '0.6rem 1.2rem', 
+                backgroundColor: '#f1f5f9', 
+                color: '#0f172a', 
+                textDecoration: 'none', 
+                borderRadius: '6px',
+                fontWeight: '500',
+                border: '1px solid #cbd5e1'
+              }}
+            >
+              Open Live Google Sheet ↗
+            </a>
           </div>
 
           <AttendanceTable title="Student Attendance" rows={students} />

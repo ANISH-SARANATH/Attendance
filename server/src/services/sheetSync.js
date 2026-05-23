@@ -2,11 +2,15 @@ const crypto = require("crypto");
 const fs = require("fs/promises");
 const https = require("https");
 const path = require("path");
+const SheetQueue = require("../models/SheetQueue"); // NEW: Import the Mongo Model
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 const SESSION_COLUMNS = ["morning", "afternoon", "evening"];
-const BASE_HEADERS = ["USN", "name", "email", "phoneno", "morning", "afternoon", "evening", "dateKey", "lastScannedAt"];
+
+// UPDATED: Added company and designation
+const BASE_HEADERS = ["USN", "name", "email", "phoneno", "company", "designation", "dateKey", "FirstScannedAt"];
+
 
 let tokenCache = {
   accessToken: "",
@@ -23,34 +27,24 @@ function isSheetsEnabled() {
   return env("GOOGLE_SHEETS_ENABLED").toLowerCase() === "true";
 }
 
-function getQueuePath() {
-  const configuredPath = env("SHEET_SYNC_QUEUE_PATH");
-  return configuredPath
-    ? path.resolve(process.cwd(), configuredPath)
-    : path.join(process.cwd(), "data", "sheet-sync-queue.json");
-}
-
 function asPlainAttendance(attendance) {
   return typeof attendance?.toObject === "function" ? attendance.toObject() : attendance;
 }
 
 function buildSheetRecord(attendanceInput) {
   const attendance = asPlainAttendance(attendanceInput);
-  const session = envSafeSession(attendance.session);
-  const record = {
-    USN: String(attendance.USN || attendance.usn || "").trim().toUpperCase(),
+  
+  return {
+    USN: String(attendance.USN || attendance.usn || attendance.id || attendance.phoneno || attendance.email || "").trim().toUpperCase(),
     name: String(attendance.name || "").trim().toUpperCase(),
     email: String(attendance.email || "").trim().toUpperCase(),
     phoneno: String(attendance.phoneno || attendance.phone || "").trim(),
-    morning: "",
-    afternoon: "",
-    evening: "",
+    company: String(attendance.company || "").trim(),
+    designation: String(attendance.designation || "").trim(),
     dateKey: String(attendance.dateKey || "").trim(),
-    lastScannedAt: attendance.scannedAt ? new Date(attendance.scannedAt).toISOString() : new Date().toISOString()
+    // Renamed to make more sense for append-only
+    FirstScannedAt: attendance.scannedAt ? new Date(attendance.scannedAt).toISOString() : new Date().toISOString()
   };
-
-  if (session) record[session] = "Y";
-  return record;
 }
 
 function envSafeSession(session) {
@@ -68,10 +62,7 @@ function base64Url(input) {
 
 function signJwt(serviceAccount) {
   const now = Math.floor(Date.now() / 1000);
-  const header = {
-    alg: "RS256",
-    typ: "JWT"
-  };
+  const header = { alg: "RS256", typ: "JWT" };
   const claim = {
     iss: serviceAccount.client_email,
     scope: GOOGLE_SHEETS_SCOPE,
@@ -213,28 +204,12 @@ function mergeHeaders(existingHeaders) {
   return headers;
 }
 
-async function resolveSheetTitle(personType, accessToken) {
-  const spreadsheetId = env("GOOGLE_SHEETS_SPREADSHEET_ID");
-  const gid = env(personType === "faculty" ? "GOOGLE_SHEETS_FACULTY_GID" : "GOOGLE_SHEETS_STUDENTS_GID");
-  const explicitTitle = env(personType === "faculty" ? "GOOGLE_SHEETS_FACULTY_SHEET_NAME" : "GOOGLE_SHEETS_STUDENTS_SHEET_NAME");
-  const cacheKey = `${spreadsheetId}:${personType}:${gid}:${explicitTitle}`;
-
-  if (sheetTitleCache.has(cacheKey)) return sheetTitleCache.get(cacheKey);
-  if (!spreadsheetId) throw new Error("GOOGLE_SHEETS_SPREADSHEET_ID is not configured.");
-
-  if (gid) {
-    const metadataUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets(properties(sheetId,title))`;
-    const metadata = await googleJson("GET", metadataUrl, accessToken);
-    const match = metadata.sheets?.find((sheet) => String(sheet.properties?.sheetId) === String(gid));
-    if (match?.properties?.title) {
-      sheetTitleCache.set(cacheKey, match.properties.title);
-      return match.properties.title;
-    }
-  }
-
-  if (!explicitTitle) throw new Error(`Sheet title is not configured for ${personType}.`);
-  sheetTitleCache.set(cacheKey, explicitTitle);
-  return explicitTitle;
+// FIX: Maps directly to the 3 exact tab names (Student, Faculty, Professional)
+async function resolveSheetTitle(personType) {
+  const lowerType = String(personType).toLowerCase();
+  if (lowerType === "faculty") return "Faculty";
+  if (lowerType === "professional") return "Professional";
+  return "Student"; 
 }
 
 async function getValues(spreadsheetId, sheetTitle, a1Range, accessToken) {
@@ -290,40 +265,24 @@ function buildSheetRow(headers, existingRow, record) {
   return headers.map((header) => merged[header] || "");
 }
 
-async function readQueue() {
-  try {
-    const raw = await fs.readFile(getQueuePath(), "utf8");
-    return JSON.parse(raw);
-  } catch {
-    return [];
-  }
-}
-
-async function writeQueue(entries) {
-  const queuePath = getQueuePath();
-  await fs.mkdir(path.dirname(queuePath), { recursive: true });
-  await fs.writeFile(queuePath, `${JSON.stringify(entries, null, 2)}\n`, "utf8");
-}
-
+// NEW: Queue logic using MongoDB instead of local files
 async function queueSheetSync(entry, reason) {
-  const queue = await readQueue();
-  queue.push({
+  await SheetQueue.create({
     ...entry,
-    queuedAt: new Date().toISOString(),
     reason
   });
-  await writeQueue(queue);
 
   return {
     ok: false,
     queued: true,
     reason,
-    queuePath: getQueuePath()
+    queuePath: "mongodb" 
   };
 }
 
 async function syncAttendanceToSheet(input, options = {}) {
-  const personType = input.personType === "faculty" ? "faculty" : "student";
+  // FIX: Trusts the input type instead of forcing faculty/student
+  const personType = input.personType; 
   const record = input.record || buildSheetRecord(input.attendance);
   const queueEntry = {
     personType,
@@ -334,48 +293,36 @@ async function syncAttendanceToSheet(input, options = {}) {
 
   if (!record.USN) {
     if (options.queueOnFailure === false) {
-      return {
-        ok: false,
-        queued: false,
-        reason: "Missing USN for sheet sync."
-      };
+      return { ok: false, queued: false, reason: "Missing USN for sheet sync." };
     }
-
     return queueSheetSync(queueEntry, "Missing USN for sheet sync.");
   }
 
   if (!isSheetsEnabled()) {
     if (options.queueOnFailure === false) {
-      return {
-        ok: false,
-        queued: false,
-        reason: "Google Sheets sync is disabled."
-      };
+      return { ok: false, queued: false, reason: "Google Sheets sync is disabled." };
     }
-
     return queueSheetSync(queueEntry, "Google Sheets sync is disabled.");
   }
 
   try {
     const spreadsheetId = env("GOOGLE_SHEETS_SPREADSHEET_ID");
     const accessToken = await getAccessToken();
-    const sheetTitle = await resolveSheetTitle(personType, accessToken);
+    const sheetTitle = await resolveSheetTitle(personType); // Uses simplified resolver
     const headers = await ensureHeaders(spreadsheetId, sheetTitle, accessToken);
     const lastColumn = columnName(headers.length - 1);
     const rows = await getValues(spreadsheetId, sheetTitle, `A2:${lastColumn}`, accessToken);
+    
     const usnIndex = headers.findIndex((header) => header.toLowerCase() === "usn");
     const existingIndex = rows.findIndex((row) => String(row[usnIndex] || "").trim().toUpperCase() === record.USN);
     const nextRow = buildSheetRow(headers, existingIndex >= 0 ? rows[existingIndex] : [], record);
 
     if (existingIndex >= 0) {
-      const rowNumber = existingIndex + 2;
-      await updateValues(spreadsheetId, sheetTitle, `A${rowNumber}:${lastColumn}${rowNumber}`, [nextRow], accessToken);
       return {
         ok: true,
         queued: false,
-        action: "updated",
-        sheet: sheetTitle,
-        row: rowNumber
+        action: "skipped_already_present", // Let the server know we skipped them
+        sheet: sheetTitle
       };
     }
 
@@ -388,32 +335,31 @@ async function syncAttendanceToSheet(input, options = {}) {
     };
   } catch (error) {
     if (options.queueOnFailure === false) {
-      return {
-        ok: false,
-        queued: false,
-        reason: error.message
-      };
+      return { ok: false, queued: false, reason: error.message };
     }
-
     return queueSheetSync(queueEntry, error.message);
   }
 }
 
+// NEW: Flush logic using MongoDB
 async function flushQueuedSheetSync() {
-  const queue = await readQueue();
-  const remaining = [];
+  const queue = await SheetQueue.find({});
   const synced = [];
+  const remaining = [];
 
   for (const entry of queue) {
     const result = await syncAttendanceToSheet(entry, { queueOnFailure: false });
     if (result.ok) {
       synced.push({ recordId: entry.recordId, USN: entry.record?.USN, result });
+      // Delete from MongoDB upon successful sync
+      await SheetQueue.findByIdAndDelete(entry._id);
     } else {
-      remaining.push({ ...entry, reason: result.reason });
+      remaining.push({ ...entry.toObject(), reason: result.reason });
+      // Update the reason and timestamp in case it changed
+      await SheetQueue.findByIdAndUpdate(entry._id, { reason: result.reason, queuedAt: new Date() });
     }
   }
 
-  await writeQueue(remaining);
   return {
     ok: remaining.length === 0,
     synced: synced.length,

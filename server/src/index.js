@@ -119,21 +119,26 @@ function decodeQrObject(source, version) {
     plainValue(data, ["type", "TYPE", "personType", "PERSON_TYPE"]) ||
     plainValue(fallback, ["type", "TYPE", "personType", "PERSON_TYPE"]);
   const qrType = typeRaw.toLowerCase();
+  
+  // FIX: Added 'phone' and 'email' as fallbacks to generate an ID
   const identifier =
-    plainValue(data, ["id", "ID", "identifier", "IDENTIFIER", "usn", "USN", "studentId", "STUDENT_ID"]) ||
-    plainValue(fallback, ["id", "ID", "identifier", "IDENTIFIER", "usn", "USN", "studentId", "STUDENT_ID"]);
-  const usn =
-    plainValue(data, ["usn", "USN", "studentId", "STUDENT_ID", "id", "ID", "identifier", "IDENTIFIER"]) ||
-    plainValue(fallback, ["usn", "USN", "studentId", "STUDENT_ID", "id", "ID", "identifier", "IDENTIFIER"]);
+    plainValue(data, ["id", "ID", "identifier", "IDENTIFIER", "usn", "USN", "phone", "PHONE", "email", "EMAIL"]) ||
+    plainValue(fallback, ["id", "ID", "identifier", "IDENTIFIER", "usn", "USN", "phone", "PHONE", "email", "EMAIL"]);
+    
+  const usn = identifier;
 
   return {
     version,
-    type: qrType === "faculty" ? "faculty" : qrType === "student" ? "student" : "",
+    // Add support for Professional type
+    type: qrType === "faculty" ? "faculty" : qrType === "student" ? "student" : qrType === "professional" ? "Professional" : "",
     identifier: normalize(identifier).toUpperCase(),
-    usn: normalize(usn || identifier).toUpperCase(),
+    usn: normalize(usn).toUpperCase(),
     name: plainValue(data, ["name", "NAME"]) || plainValue(fallback, ["name", "NAME"]),
     phone: plainValue(data, ["phone", "PHONE"]) || plainValue(fallback, ["phone", "PHONE"]),
-    email: plainValue(data, ["email", "EMAIL"]) || plainValue(fallback, ["email", "EMAIL"])
+    email: plainValue(data, ["email", "EMAIL"]) || plainValue(fallback, ["email", "EMAIL"]),
+    // Extract new fields
+    company: plainValue(data, ["company", "COMPANY"]) || plainValue(fallback, ["company", "COMPANY"]),
+    designation: plainValue(data, ["designation", "DESIGNATION"]) || plainValue(fallback, ["designation", "DESIGNATION"])
   };
 }
 
@@ -266,13 +271,7 @@ function buildLegacyIdIdentifier(decoded) {
 function getIdentifierFields(identifier) {
   const parsed = parseJsonCandidate(identifier);
   if (!parsed) {
-    return {
-      type: "",
-      USN: "",
-      name: "",
-      phoneno: "",
-      email: ""
-    };
+    return { type: "", USN: "", name: "", phoneno: "", email: "", company: "", designation: "" };
   }
 
   const decoded = decodeQrObject(parsed, "identifier");
@@ -282,7 +281,9 @@ function getIdentifierFields(identifier) {
     USN: normalize(decoded.usn || decoded.identifier).toUpperCase(),
     name: normalize(decoded.name).toUpperCase(),
     phoneno: normalize(decoded.phone),
-    email: normalize(decoded.email).toUpperCase()
+    email: normalize(decoded.email).toUpperCase(),
+    company: normalize(decoded.company),
+    designation: normalize(decoded.designation)
   };
 }
 
@@ -325,8 +326,10 @@ function buildAttendancePayload(qrText, session, user) {
     throw new Error("Invalid QR identifier.");
   }
 
-  const personType = decoded.type || detectPersonType(decoded.identifier);
-  const Model = personType === "faculty" ? FacultyAttendance : StudentAttendance;
+  // FIX: Route Professionals into the Faculty database table
+  const personType = decoded.type === "Professional" ? "Professional" : (decoded.type || detectPersonType(decoded.identifier));
+  const Model = (personType === "faculty" || personType === "Professional") ? FacultyAttendance : StudentAttendance;
+  
   const dateKey = getDateKey();
   const identifierFields = getIdentifierFields(storedIdentifier);
 
@@ -338,6 +341,8 @@ function buildAttendancePayload(qrText, session, user) {
     name: identifierFields.name,
     phoneno: identifierFields.phoneno || getPhoneFromId(personType, identifierFields.USN),
     email: identifierFields.email,
+    company: identifierFields.company, // Added
+    designation: identifierFields.designation, // Added
     session,
     dateKey,
     scannedAt: new Date(),
@@ -349,38 +354,39 @@ function buildAttendancePayload(qrText, session, user) {
   return { payload, personType, Model, dateKey, legacyIdentifiers: getLegacyIdentifiers(qrText, decoded, storedIdentifier) };
 }
 
-function toCsv(rows) {
-  const headers = ["name", "email", "USN", "phoneno", "session"];
 
-  function getExportFields(row) {
-    const identifierFields = getIdentifierFields(row.identifier || row.id);
+// function toCsv(rows) {
+//   const headers = ["name", "email", "USN", "phoneno", "session"];
 
-    return {
-      name: row.name || identifierFields.name,
-      email: row.email || identifierFields.email,
-      USN: row.USN || row.usn || identifierFields.USN,
-      phoneno: row.phoneno || row.phone || identifierFields.phoneno,
-      session: row.session
-    };
-  }
+//   function getExportFields(row) {
+//     const identifierFields = getIdentifierFields(row.identifier || row.id);
 
-  function getExportValue(row, key) {
-    return getExportFields(row)[key];
-  }
+//     return {
+//       name: row.name || identifierFields.name,
+//       email: row.email || identifierFields.email,
+//       USN: row.USN || row.usn || identifierFields.USN,
+//       phoneno: row.phoneno || row.phone || identifierFields.phoneno,
+//       session: row.session
+//     };
+//   }
 
-  const escaped = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const lines = [headers.join(",")];
-  for (const row of rows) {
-    lines.push(
-      headers
-        .map((key) => {
-          return escaped(getExportValue(row, key));
-        })
-        .join(",")
-    );
-  }
-  return lines.join("\n");
-}
+//   function getExportValue(row, key) {
+//     return getExportFields(row)[key];
+//   }
+
+//   const escaped = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+//   const lines = [headers.join(",")];
+//   for (const row of rows) {
+//     lines.push(
+//       headers
+//         .map((key) => {
+//           return escaped(getExportValue(row, key));
+//         })
+//         .join(",")
+//     );
+//   }
+//   return lines.join("\n");
+// }
 
 app.get("/api/health", (_req, res) => {
   res.json({
@@ -507,36 +513,36 @@ app.get("/api/attendance/faculty", authRequired, adminOnly, async (_req, res) =>
   res.json(rows);
 });
 
-app.get("/api/attendance/export/:type", authRequired, adminOnly, async (req, res) => {
-  const { type } = req.params;
-  let rows = [];
-  let filename = "attendance.csv";
+// app.get("/api/attendance/export/:type", authRequired, adminOnly, async (req, res) => {
+//   const { type } = req.params;
+//   let rows = [];
+//   let filename = "attendance.csv";
 
-  if (type === "students") {
-    rows = await StudentAttendance.find().sort({ scannedAt: -1 }).lean();
-    filename = "students-attendance.csv";
-  } else if (type === "faculty") {
-    rows = await FacultyAttendance.find().sort({ scannedAt: -1 }).lean();
-    filename = "faculty-attendance.csv";
-  } else if (type === "all") {
-    const [students, faculty] = await Promise.all([
-      StudentAttendance.find().lean(),
-      FacultyAttendance.find().lean()
-    ]);
-    rows = [
-      ...students.map((r) => ({ ...r, group: "student" })),
-      ...faculty.map((r) => ({ ...r, group: "faculty" }))
-    ];
-    filename = "all-attendance.csv";
-  } else {
-    return res.status(400).json({ message: "Invalid export type." });
-  }
+//   if (type === "students") {
+//     rows = await StudentAttendance.find().sort({ scannedAt: -1 }).lean();
+//     filename = "students-attendance.csv";
+//   } else if (type === "faculty") {
+//     rows = await FacultyAttendance.find().sort({ scannedAt: -1 }).lean();
+//     filename = "faculty-attendance.csv";
+//   } else if (type === "all") {
+//     const [students, faculty] = await Promise.all([
+//       StudentAttendance.find().lean(),
+//       FacultyAttendance.find().lean()
+//     ]);
+//     rows = [
+//       ...students.map((r) => ({ ...r, group: "student" })),
+//       ...faculty.map((r) => ({ ...r, group: "faculty" }))
+//     ];
+//     filename = "all-attendance.csv";
+//   } else {
+//     return res.status(400).json({ message: "Invalid export type." });
+//   }
 
-  const csv = toCsv(rows);
-  res.setHeader("Content-Type", "text/csv");
-  res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
-  return res.send(csv);
-});
+//   const csv = toCsv(rows);
+//   res.setHeader("Content-Type", "text/csv");
+//   res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
+//   return res.send(csv);
+// });
 
 app.post("/api/attendance/sheet-sync/retry", authRequired, adminOnly, async (_req, res) => {
   const result = await flushQueuedSheetSync();
