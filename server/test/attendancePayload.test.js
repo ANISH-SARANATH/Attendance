@@ -89,7 +89,7 @@ test("builds a Professional Mongo payload with company and designation", () => {
   const descriptor = buildAttendancePayload(qrText, "evening", { username: "volunteer-c" }, fixedNow);
 
   assert.equal(descriptor.personType, "Professional");
-  assert.equal(descriptor.storageGroup, "faculty");
+  assert.equal(descriptor.storageGroup, "professional");
   assert.deepEqual(
     {
       type: descriptor.payload.type,

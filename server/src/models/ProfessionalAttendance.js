@@ -1,8 +1,8 @@
 const mongoose = require("mongoose");
 
-const facultyAttendanceSchema = new mongoose.Schema(
+const professionalAttendanceSchema = new mongoose.Schema(
   {
-    type: { type: String, default: "Faculty", enum: ["Faculty"] },
+    type: { type: String, default: "Professional", enum: ["Professional"] },
     id: { type: String, default: undefined, select: false },
     name: { type: String, default: "" },
     phone: { type: String, default: "", alias: "phoneno" },
@@ -20,9 +20,9 @@ const facultyAttendanceSchema = new mongoose.Schema(
     USN: { type: String, default: undefined, select: false },
     usn: { type: String, default: undefined, select: false }
   },
-  { timestamps: true }
+  { timestamps: true, collection: "ProfessionalAttendances" }
 );
 
-facultyAttendanceSchema.index({ lookupKey: 1, Session: 1, dateKey: 1 }, { unique: true });
+professionalAttendanceSchema.index({ lookupKey: 1, Session: 1, dateKey: 1 }, { unique: true });
 
-module.exports = mongoose.model("FacultyAttendance", facultyAttendanceSchema);
+module.exports = mongoose.model("ProfessionalAttendance", professionalAttendanceSchema);

@@ -330,7 +330,8 @@ function buildAttendancePayload(qrText, session, user, now = new Date()) {
     payload.designation = normalize(decoded.designation);
   }
 
-  const storageGroup = personType === "Student" ? "student" : "faculty";
+  const storageGroup =
+    personType === "Student" ? "student" : personType === "Professional" ? "professional" : "faculty";
 
   return {
     payload,

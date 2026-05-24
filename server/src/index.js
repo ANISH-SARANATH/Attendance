@@ -8,6 +8,7 @@ dotenv.config();
 
 const StudentAttendance = require("./models/StudentAttendance");
 const FacultyAttendance = require("./models/FacultyAttendance");
+const ProfessionalAttendance = require("./models/ProfessionalAttendance");
 const { authRequired, adminOnly } = require("./middleware/auth");
 const { buildAttendanceLookup, buildAttendancePayload } = require("./services/attendancePayload");
 const { flushQueuedSheetSync, syncAttendanceToSheet } = require("./services/sheetSync");
@@ -41,6 +42,12 @@ function signToken(role, username) {
   return jwt.sign({ role, username }, JWT_SECRET, {
     expiresIn: "12h"
   });
+}
+
+function getAttendanceModel(storageGroup) {
+  if (storageGroup === "student") return StudentAttendance;
+  if (storageGroup === "professional") return ProfessionalAttendance;
+  return FacultyAttendance;
 }
 
 // function toCsv(rows) {
@@ -106,7 +113,7 @@ app.post("/api/attendance/scan", authRequired, async (req, res) => {
   try {
     const { qrText, session } = req.body || {};
     const descriptor = buildAttendancePayload(qrText, session, req.user);
-    const Model = descriptor.storageGroup === "student" ? StudentAttendance : FacultyAttendance;
+    const Model = getAttendanceModel(descriptor.storageGroup);
     const existing = await Model.findOne(buildAttendanceLookup(descriptor));
 
     if (existing) {
@@ -150,7 +157,7 @@ app.patch("/api/attendance/scan", authRequired, async (req, res) => {
   try {
     const { qrText, session } = req.body || {};
     const descriptor = buildAttendancePayload(qrText, session, req.user);
-    const Model = descriptor.storageGroup === "student" ? StudentAttendance : FacultyAttendance;
+    const Model = getAttendanceModel(descriptor.storageGroup);
 
     const result = await Model.findOneAndUpdate(
       buildAttendanceLookup(descriptor),
@@ -252,7 +259,7 @@ async function connectMongo() {
     console.log(`MongoDB connected using fallback URI. Database: ${mongoose.connection.name}.`);
   }
 
-  await Promise.all([StudentAttendance.syncIndexes(), FacultyAttendance.syncIndexes()]);
+  await Promise.all([StudentAttendance.syncIndexes(), FacultyAttendance.syncIndexes(), ProfessionalAttendance.syncIndexes()]);
 }
 
 connectMongo()
