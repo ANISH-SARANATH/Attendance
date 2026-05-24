@@ -4,12 +4,13 @@ import { api, setAuthToken } from "../lib/api";
 
 type AttendanceRow = {
   _id: string;
-  identifier: string;
-  USN?: string;
-  usn?: string;
+  type: string;
+  id?: string;
   name: string;
+  phone?: string;
   email: string;
-  session: string;
+  Session?: string;
+  session?: string;
   dateKey: string;
   scannedAt: string;
   scannedBy: string;
@@ -223,8 +224,8 @@ function AttendanceTable({ title, rows }: { title: string; rows: AttendanceRow[]
           <thead>
             <tr>
               <th>Name</th>
-              <th>USN</th>
-              <th>Identifier</th>
+              <th>ID / Phone</th>
+              <th>Type</th>
               <th>Email</th>
               <th>Session</th>
               <th>Date</th>
@@ -243,11 +244,11 @@ function AttendanceTable({ title, rows }: { title: string; rows: AttendanceRow[]
               rows.map((row) => (
                 <tr key={row._id}>
                   <td>{row.name}</td>
-                  <td>{row.USN || row.usn || row.identifier}</td>
-                  <td>{row.identifier}</td>
+                  <td>{row.id || row.phone || row.email || "-"}</td>
+                  <td>{row.type}</td>
                   <td>{row.email}</td>
                   <td>
-                    <span className="session-badge">{row.session}</span>
+                    <span className="session-badge">{row.Session || row.session}</span>
                   </td>
                   <td>{row.dateKey}</td>
                   <td>{new Date(row.scannedAt).toLocaleString()}</td>

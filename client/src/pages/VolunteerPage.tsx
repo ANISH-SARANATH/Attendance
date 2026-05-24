@@ -137,7 +137,7 @@ export default function VolunteerPage() {
       // --- ONLINE SUCCESS LOGIC ---
       const { type, data } = res.data;
       const name = data.name || "Unknown";
-      const id = data.USN || data.usn || data.id || data.identifier;
+      const id = data.id || data.phone || data.email || data.USN || data.usn || data.identifier;
       const time = new Date(data.scannedAt).toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
