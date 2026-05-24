@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Html5Qrcode } from "html5-qrcode";
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import type { CameraDevice, Html5QrcodeCameraScanConfig } from "html5-qrcode";
 
 type Props = {
@@ -114,7 +114,8 @@ export default function QrScanner({ confirmationKey, onDecoded }: Props) {
   const getScanner = useCallback(() => {
     if (!scannerRef.current) {
       scannerRef.current = new Html5Qrcode("qr-reader", {
-        useBarCodeDetectorIfSupported: true,
+        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+        useBarCodeDetectorIfSupported: false,
         verbose: false
       });
     }
